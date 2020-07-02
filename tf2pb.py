@@ -4,6 +4,7 @@ from absl import app
 from absl import flags
 
 import tensorflow as tf
+from tensorflow.python.framework.graph_util import convert_variables_to_constants
 import util
 
 import onnx
@@ -23,6 +24,22 @@ flags.DEFINE_string('output_file_name', "model.pb", 'Output File Name')
 FLAGS = flags.FLAGS
 
 
+def freeze_session(session, keep_var_names=None, output_names=None, clear_devices=True):
+
+    graph = session.graph
+    with graph.as_default():
+        freeze_var_names = list(set(v.op.name for v in tf.global_variables()).difference(keep_var_names or []))
+        output_names = output_names or []
+        output_names += [v.op.name for v in tf.global_variables()]
+        # Graph -> GraphDef ProtoBuf
+        input_graph_def = graph.as_graph_def()
+        if clear_devices:
+            for node in input_graph_def.node:
+                node.device = ""
+        frozen_graph = convert_variables_to_constants(session, input_graph_def,
+                                                      output_names, freeze_var_names)
+        return frozen_graph
+
 def _run_pb_gen():
 
   '''Load Model from model.py file''' 
@@ -37,7 +54,7 @@ def _run_pb_gen():
     sess.run(tf.compat.v1.global_variables_initializer())
 
     '''Get Graph Def'''
-    graph = sess.graph
+    graph_def = sess.graph.as_graph_def()
 
     '''Extract Inputs'''
     inputs = []
@@ -48,20 +65,25 @@ def _run_pb_gen():
     '''Extract Outputs'''
     name_list = []
     exclsv_list = []
-    for node in graph.as_graph_def().node:
+    for node in graph_def.node:
         name_list.append(node.name)
         exclsv_list.extend(node.input)
-    outputs = set(name_list) - set(exclsv_list)
+    outputs = list(set(name_list) - set(exclsv_list))
 
-    g = tf2onnx.tfonnx.process_tf_graph(sess.graph, input_names=inputs, output_names=outputs)
+    frozen_graph = freeze_session(sess, output_names=outputs)
+
+    '''Freezing Model (Necessary before pb-generation)'''
+    with tf.Graph().as_default() as tf_graph:
+        tf.import_graph_def(frozen_graph, name='')
+    with tf.Session(graph=tf_graph) as sess:
+        onnx_graph = tf2onnx.tfonnx.process_tf_graph(sess.graph, input_names=inputs, output_names=outputs)
 
     '''Make ProtoBuff Model'''
-    model_proto = g.make_model(str(FLAGS.output_path))
+    model_proto = onnx_graph.make_model(str(FLAGS.output_path))
     onnx.checker.check_model(model_proto)
 
     '''Store pb-file'''
     tf2onnx.utils.save_onnx_model("./", "saved_model", feed_dict={}, model_proto=model_proto)
-    #tf.io.write_graph(graph, str(FLAGS.output_path), str(FLAGS.output_file_name), as_text=False)
 
     print('TF-Graph converted to SavedModel!')
 
