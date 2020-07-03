@@ -23,23 +23,18 @@ flags.DEFINE_string('output_file_name', "model.pb", 'Output File Name')
 FLAGS = flags.FLAGS
 
 
-def freeze_session(sess, keep_var_names=None, output_names=None, clear_devices=True):
+def freeze_session(sess, graph_def, keep_var_names=None, output_names=None, clear_devices=True):
 
-    graph = sess.graph
-    with graph.as_default():
-      freeze_var_names = list(set(v.op.name for v in tf.compat.v1.global_variables()).difference(keep_var_names or []))
-      
-      '''Graph -> GraphDef ProtoBuf'''
-      input_graph_def = graph.as_graph_def()
+  freeze_var_names = list(set(v.op.name for v in tf.compat.v1.global_variables()).difference(keep_var_names or []))
 
-      '''Clear Device Setting'''
-      if clear_devices:
-        for index, _ in enumerate(input_graph_def.node):
-          input_graph_def.node[index].device = ""
+  '''Clear Device Setting'''
+  if clear_devices:
+    for index, _ in enumerate(graph_def.node):
+      graph_def.node[index].device = ""
       
-      '''Freezing Graph'''
-      frozen_graph = tf.compat.v1.graph_util.convert_variables_to_constants(sess, input_graph_def, output_names, freeze_var_names)
-      return frozen_graph
+  'Freezing Graph'''
+  frozen_graph = tf.compat.v1.graph_util.convert_variables_to_constants(sess, graph_def, output_names, freeze_var_names)
+  return frozen_graph
 
 def _run_pb_gen():
 
@@ -52,7 +47,8 @@ def _run_pb_gen():
 
   with tf.compat.v1.Session() as sess:
     '''Initialize Variables in Model'''
-    sess.run(tf.compat.v1.global_variables_initializer())
+    init_op = tf.compat.v1.initialize_all_variables()
+    sess.run(init_op)
 
     '''Get Graph Def'''
     graph_def = sess.graph.as_graph_def()
@@ -72,7 +68,7 @@ def _run_pb_gen():
     outputs = list(set(name_list) - set(exclsv_list))
 
     print(">>>>Freezing Graph<<<<")
-    frozen_graph = freeze_session(sess, output_names=outputs)
+    frozen_graph = freeze_session(sess, graph_def, output_names=outputs)
     with tf.Graph().as_default() as tf_graph:
         tf.import_graph_def(frozen_graph, name='')
     with tf.compat.v1.Session(graph=tf_graph) as sess:
