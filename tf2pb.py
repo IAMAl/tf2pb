@@ -28,11 +28,6 @@ def freeze_session(sess, keep_var_names=None, output_names=None, clear_devices=T
     graph = sess.graph
     with graph.as_default():
       freeze_var_names = list(set(v.op.name for v in tf.compat.v1.global_variables()).difference(keep_var_names or []))
-      #output_names = output_names or []
-      #output_names += [v.op.name for v in tf.compat.v1.global_variables()]
-
-      print(">>>>TEST<<<<")
-      print(tf.compat.v1.global_variables())
       
       '''Graph -> GraphDef ProtoBuf'''
       input_graph_def = graph.as_graph_def()
@@ -76,7 +71,7 @@ def _run_pb_gen():
         exclsv_list.extend(node.input)
     outputs = list(set(name_list) - set(exclsv_list))
 
-    print(">>>>TEST<<<<")
+    print(">>>>Freezing Graph<<<<")
     frozen_graph = freeze_session(sess, output_names=outputs)
 
     '''Freezing Model (Necessary before pb-generation)'''
