@@ -23,20 +23,28 @@ flags.DEFINE_string('output_file_name', "model.pb", 'Output File Name')
 FLAGS = flags.FLAGS
 
 
-def freeze_session(session, keep_var_names=None, output_names=None, clear_devices=True):
+def freeze_session(sess, keep_var_names=None, output_names=None, clear_devices=True):
 
-    graph = session.graph
+    graph = sess.graph
     with graph.as_default():
       freeze_var_names = list(set(v.op.name for v in tf.compat.v1.global_variables()).difference(keep_var_names or []))
-      output_names = output_names or []
-      output_names += [v.op.name for v in tf.compat.v1.global_variables()]
-      # Graph -> GraphDef ProtoBuf
+      #output_names = output_names or []
+      #output_names += [v.op.name for v in tf.compat.v1.global_variables()]
+
+      print(">>>>TEST<<<<")
+      print(tf.compat.v1.global_variables())
+      
+      '''Graph -> GraphDef ProtoBuf'''
       input_graph_def = graph.as_graph_def()
+
+      '''Clear Device Setting'''
       if clear_devices:
         for index, _ in enumerate(input_graph_def.node):
           input_graph_def.node[index].device = ""
-        frozen_graph = tf.compat.v1.graph_util.convert_variables_to_constants(session, input_graph_def, output_names, freeze_var_names)
-        return frozen_graph
+      
+      '''Freezing Graph'''
+      frozen_graph = tf.compat.v1.graph_util.convert_variables_to_constants(sess, input_graph_def, output_names, freeze_var_names)
+      return frozen_graph
 
 def _run_pb_gen():
 
@@ -47,23 +55,12 @@ def _run_pb_gen():
                 img_height=FLAGS.img_height,
                 img_width=FLAGS.img_width)
 
-  with tf.Session() as sess:
+  with tf.compat.v1.Session() as sess:
     '''Initialize Variables in Model'''
     sess.run(tf.compat.v1.global_variables_initializer())
 
     '''Get Graph Def'''
     graph_def = sess.graph.as_graph_def()
-
-    '''fix nodes'''
-    for i, node in enumerate(graph_def.node):
-      if node.op == 'RefSwitch':
-        graph_def.node[i].op = 'Switch'
-        for index in range(len(node.input)):
-          if 'moving_' in node.input[index]:
-            graph_def.node[i].input[index] = node.input[index] + '/read'
-      elif node.op == 'AssignSub':
-        graph_def.node[i].op = 'Sub'
-        if 'use_locking' in node.attr: del graph_def.node[i].attr['use_locking']
 
     '''Extract Inputs'''
     inputs = []
@@ -79,6 +76,7 @@ def _run_pb_gen():
         exclsv_list.extend(node.input)
     outputs = list(set(name_list) - set(exclsv_list))
 
+    print(">>>>TEST<<<<")
     frozen_graph = freeze_session(sess, output_names=outputs)
 
     '''Freezing Model (Necessary before pb-generation)'''
