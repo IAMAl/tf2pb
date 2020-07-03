@@ -73,8 +73,6 @@ def _run_pb_gen():
 
     print(">>>>Freezing Graph<<<<")
     frozen_graph = freeze_session(sess, output_names=outputs)
-
-    '''Freezing Model (Necessary before pb-generation)'''
     with tf.Graph().as_default() as tf_graph:
         tf.import_graph_def(frozen_graph, name='')
     with tf.compat.v1.Session(graph=tf_graph) as sess:
