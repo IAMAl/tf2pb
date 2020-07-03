@@ -4,7 +4,6 @@ from absl import app
 from absl import flags
 
 import tensorflow as tf
-from tensorflow.python.framework.graph_util import convert_variables_to_constants
 import util
 
 import onnx
@@ -28,16 +27,15 @@ def freeze_session(session, keep_var_names=None, output_names=None, clear_device
 
     graph = session.graph
     with graph.as_default():
-        freeze_var_names = list(set(v.op.name for v in tf.global_variables()).difference(keep_var_names or []))
+        freeze_var_names = list(set(v.op.name for v in tf.compat.v1.global_variables()).difference(keep_var_names or []))
         output_names = output_names or []
-        output_names += [v.op.name for v in tf.global_variables()]
+        output_names += [v.op.name for v in tf.compat.v1.global_variables()]
         # Graph -> GraphDef ProtoBuf
         input_graph_def = graph.as_graph_def()
         if clear_devices:
             for node in input_graph_def.node:
                 node.device = ""
-        frozen_graph = convert_variables_to_constants(session, input_graph_def,
-                                                      output_names, freeze_var_names)
+        frozen_graph = tf.compat.v1.graph_util.convert_variables_to_constants(session, input_graph_def, output_names, freeze_var_names)
         return frozen_graph
 
 def _run_pb_gen():
@@ -55,6 +53,17 @@ def _run_pb_gen():
 
     '''Get Graph Def'''
     graph_def = sess.graph.as_graph_def()
+
+    '''fix nodes'''
+    for i, node in enumerate(graph_def.node):
+      if node.op == 'RefSwitch':
+        graph_def.node[i].op = 'Switch'
+        for index in range(len(node.input)):
+          if 'moving_' in node.input[index]:
+            graph_def.node[i].input[index] = node.input[index] + '/read'
+      elif node.op == 'AssignSub':
+        graph_def.node[i].op = 'Sub'
+        if 'use_locking' in node.attr: del graph_def.node[i].attr['use_locking']
 
     '''Extract Inputs'''
     inputs = []
@@ -75,7 +84,7 @@ def _run_pb_gen():
     '''Freezing Model (Necessary before pb-generation)'''
     with tf.Graph().as_default() as tf_graph:
         tf.import_graph_def(frozen_graph, name='')
-    with tf.Session(graph=tf_graph) as sess:
+    with tf.compat.v1.Session(graph=tf_graph) as sess:
         onnx_graph = tf2onnx.tfonnx.process_tf_graph(sess.graph, input_names=inputs, output_names=outputs)
 
     '''Make ProtoBuff Model'''
