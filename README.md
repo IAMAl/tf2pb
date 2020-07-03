@@ -1,4 +1,4 @@
-# onnx Utility module
+# ONNX Utility Module
 
 ### tf2pb
-Convert Tensorflow Graph to pb file.
+Converting Tensorflow Graph to ProtoBuff (pb) file.
