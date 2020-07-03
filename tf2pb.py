@@ -1,11 +1,8 @@
 import os
-
 from absl import app 
 from absl import flags
-
 import tensorflow as tf
 import util
-
 import onnx
 import tf2onnx
 
