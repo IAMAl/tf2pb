@@ -33,6 +33,7 @@ def freeze_session(sess, graph_def, keep_var_names=None, output_names=None, clea
   frozen_graph = tf.compat.v1.graph_util.convert_variables_to_constants(sess, graph_def, output_names, freeze_var_names)
   return frozen_graph
 
+
 def _run_pb_gen():
 
   '''Load Model from model.py file''' 
@@ -64,18 +65,24 @@ def _run_pb_gen():
         exclsv_list.extend(node.input)
     outputs = list(set(name_list) - set(exclsv_list))
 
-    print(">>>>Freezing Graph<<<<")
-    frozen_graph = freeze_session(sess, graph_def, output_names=outputs)
+    '''Freezing Graph (Necessary before Make ONNX Graph)'''
+    needed_names = [tf2onnx.utils.node_name(i) for i in inputs] + [tf2onnx.utils.node_name(i) for i in outputs]
+    sg_graph = tf.compat.v1.graph_util.extract_sub_graph(graph_def, needed_names)
+    frozen_graph = freeze_session(sess, sg_graph, output_names=outputs)
+
+    '''ONNX Graph Generation'''
     with tf.Graph().as_default() as tf_graph:
         tf.import_graph_def(frozen_graph, name='')
     with tf.compat.v1.Session(graph=tf_graph) as sess:
-        onnx_graph = tf2onnx.tfonnx.process_tf_graph(sess.graph, input_names=inputs, output_names=outputs)
+        '''Optimizing Grapph for ONNX FOrmation'''
+        opt_graph = tf2onnx.optimizer.optimize_graph(sess.graph)
+        onnx_graph = tf2onnx.tfonnx.process_tf_graph(opt_graph, input_names=inputs, output_names=outputs)
 
     '''Make ProtoBuff Model'''
     model_proto = onnx_graph.make_model(str(FLAGS.output_path))
     onnx.checker.check_model(model_proto)
 
-    '''Store pb-file'''
+    '''Store ProtoBuff-file'''
     tf2onnx.utils.save_onnx_model("./", "saved_model", feed_dict={}, model_proto=model_proto)
 
     print('TF-Graph converted to SavedModel!')
