@@ -13,8 +13,6 @@ flags.DEFINE_integer('batch_size',   4, 'The size of a sample batch.')
 flags.DEFINE_integer('img_height', 128, 'Image height.')
 flags.DEFINE_integer('img_width',  416, 'Image width.')
 flags.DEFINE_integer('seq_length',   3, 'Sequence length for each example.')
-
-flags.DEFINE_string('model_ckpt', None, 'Model checkpoint to load.')
 flags.DEFINE_string('output_path', "output_path", 'Output File Name')
 flags.DEFINE_string('output_file_name', "model.pb", 'Output File Name')
 FLAGS = flags.FLAGS
@@ -45,7 +43,9 @@ def _run_pb_gen():
 
   with tf.compat.v1.Session() as sess:
     '''Initialize Variables in Model'''
-    init_op = tf.compat.v1.initialize_all_variables()
+    init_op = tf.compat.v1.global_variables_initializer()
+
+    '''Start Session'''
     sess.run(init_op)
 
     '''Get Graph Def'''
@@ -65,18 +65,40 @@ def _run_pb_gen():
         exclsv_list.extend(node.input)
     outputs = list(set(name_list) - set(exclsv_list))
 
-    '''Freezing Graph (Necessary before Make ONNX Graph)'''
+    '''Fix Nodes'''
+    '''See: https://github.com/onnx/tensorflow-onnx/issues/77'''
+    for node in graph_def.node:
+      if node.op == 'RefSwitch':
+        node.op = 'Switch'
+        for index in range(len(node.input)):
+          if 'moving_' in node.input[index]:
+            node.input[index] = node.input[index] + '/read'
+      elif node.op == 'AssignSub':
+        node.op = 'Sub'
+        if 'use_locking' in node.attr: del node.attr['use_locking']
+      elif node.op == 'AssignAdd':
+        node.op = 'Add'
+        if 'use_locking' in node.attr: del node.attr['use_locking']
+      elif node.op == 'Assign':
+        node.op = 'Identity'
+        if 'use_locking' in node.attr: del node.attr['use_locking']
+        if 'validate_shape' in node.attr: del node.attr['validate_shape']
+        if len(node.input) == 2:
+          # input0: ref: Should be from a Variable node. May be uninitialized.
+          # input1: value: The value to be assigned to the variable.
+          node.input[0] = node.input[1]
+          del node.input[1]
+
+    '''Freezing Graph (Necessary before Making ONNX Graph)'''
     needed_names = [tf2onnx.utils.node_name(i) for i in inputs] + [tf2onnx.utils.node_name(i) for i in outputs]
     sg_graph = tf.compat.v1.graph_util.extract_sub_graph(graph_def, needed_names)
     frozen_graph = freeze_session(sess, sg_graph, output_names=outputs)
 
+    '''Optimizing Grapph for ONNX Formation'''
+    opt_graph = tf2onnx.optimizer.optimize_graph(frozen_graph)
+
     '''ONNX Graph Generation'''
-    with tf.Graph().as_default() as tf_graph:
-        tf.import_graph_def(frozen_graph, name='')
-    with tf.compat.v1.Session(graph=tf_graph) as sess:
-        '''Optimizing Grapph for ONNX FOrmation'''
-        opt_graph = tf2onnx.optimizer.optimize_graph(sess.graph)
-        onnx_graph = tf2onnx.tfonnx.process_tf_graph(opt_graph, input_names=inputs, output_names=outputs)
+    onnx_graph = tf2onnx.tfonnx.process_tf_graph(opt_graph, input_names=inputs, output_names=outputs)
 
     '''Make ProtoBuff Model'''
     model_proto = onnx_graph.make_model(str(FLAGS.output_path))
