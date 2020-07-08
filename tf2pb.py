@@ -94,14 +94,14 @@ def _run_pb_gen():
     sg_graph = tf.compat.v1.graph_util.extract_sub_graph(graph_def, needed_names)
     frozen_graph = freeze_session(sess, sg_graph, output_names=outputs)
 
-    '''Optimizing Grapph for ONNX Formation'''
-    opt_graph = tf2onnx.optimizer.optimize_graph(frozen_graph)
-
     '''ONNX Graph Generation'''
-    onnx_graph = tf2onnx.tfonnx.process_tf_graph(opt_graph, input_names=inputs, output_names=outputs)
+    onnx_graph = tf2onnx.tfonnx.process_tf_graph(frozen_graph, input_names=inputs, output_names=outputs)
+
+    '''Optimizing Grapph for ONNX Formation'''
+    opt_graph = tf2onnx.optimizer.optimize_graph(onnx_graph)
 
     '''Make ProtoBuff Model'''
-    model_proto = onnx_graph.make_model(str(FLAGS.output_path))
+    model_proto = opt_graph.make_model(str(FLAGS.output_path))
     onnx.checker.check_model(model_proto)
 
     '''Store ProtoBuff-file'''
