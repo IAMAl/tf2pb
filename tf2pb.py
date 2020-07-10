@@ -2,9 +2,11 @@ import os
 from absl import app 
 from absl import flags
 import tensorflow as tf
+from tensorflow.core.framework import graph_pb2
 import util
 import onnx
 import tf2onnx
+from tf2onnx.tf_loader import tf_session, tf_reset_default_graph
 
 '''Import Model from model.py file'''
 import model
@@ -21,11 +23,6 @@ FLAGS = flags.FLAGS
 def freeze_session(sess, graph_def, keep_var_names=None, output_names=None, clear_devices=True):
 
   freeze_var_names = list(set(v.op.name for v in tf.compat.v1.global_variables()).difference(keep_var_names or []))
-
-  '''Clear Device Setting'''
-  if clear_devices:
-    for index, _ in enumerate(graph_def.node):
-      graph_def.node[index].device = ""
       
   'Freezing Graph'''
   frozen_graph = tf.compat.v1.graph_util.convert_variables_to_constants(sess, graph_def, output_names, freeze_var_names)
@@ -40,6 +37,7 @@ def _run_pb_gen():
                 batch_size=FLAGS.batch_size,
                 img_height=FLAGS.img_height,
                 img_width=FLAGS.img_width)
+
 
   with tf.compat.v1.Session() as sess:
     '''Initialize Variables in Model'''
@@ -89,10 +87,18 @@ def _run_pb_gen():
           node.input[0] = node.input[1]
           del node.input[1]
 
-    '''Freezing Graph (Necessary before Making ONNX Graph)'''
+    '''Sub Graph Extraction'''
     needed_names = [tf2onnx.utils.node_name(i) for i in inputs] + [tf2onnx.utils.node_name(i) for i in outputs]
-    sg_graph = tf.compat.v1.graph_util.extract_sub_graph(graph_def, needed_names)
-    frozen_graph = freeze_session(sess, sg_graph, output_names=outputs)
+    sub_graph = tf.compat.v1.graph_util.extract_sub_graph(graph_def, needed_names)
+
+  '''Graph_Def to Graph Conversion'''
+  tf_reset_default_graph()
+  graph = tf.import_graph_def(sub_graph, name='')
+
+  with tf_session(graph=graph) as sess:
+    graph_def2 = graph_pb2.GraphDef()
+    '''Freezing Graph (Necessary before Making ONNX Graph)'''
+    frozen_graph = freeze_session(sess, graph_def2, output_names=outputs)
 
     '''ONNX Graph Generation'''
     onnx_graph = tf2onnx.tfonnx.process_tf_graph(frozen_graph, input_names=inputs, output_names=outputs)
