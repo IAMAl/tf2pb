@@ -91,17 +91,32 @@ def _run_pb_gen():
     needed_names = [tf2onnx.utils.node_name(i) for i in inputs] + [tf2onnx.utils.node_name(i) for i in outputs]
     sub_graph = tf.compat.v1.graph_util.extract_sub_graph(graph_def, needed_names)
 
+    '''Freezing Graph (Necessary before Making ONNX Graph)'''
+    frozen_graph = freeze_session(sess, sub_graph, output_names=outputs)
+
   '''Graph_Def to Graph Conversion'''
   tf_reset_default_graph()
-  graph = tf.import_graph_def(sub_graph, name='')
+  graph = tf.import_graph_def(frozen_graph, name='')
 
   with tf_session(graph=graph) as sess:
-    graph_def2 = graph_pb2.GraphDef()
-    '''Freezing Graph (Necessary before Making ONNX Graph)'''
-    frozen_graph = freeze_session(sess, graph_def2, output_names=outputs)
+    '''Extract Inputs'''
+    inputs = []
+    for op in sess.graph.get_operations():
+        if op.type == "Placeholder":
+          inputs.append(op.name+':0')
+
+    '''Extract Outputs'''
+    name_list = []
+    exclsv_list = []
+    for node in graph_def.node:
+        name_list.append(node.name+':0')
+        exclsv_list.extend(node.input)
+    outputs = list(set(name_list) - set(exclsv_list))
 
     '''ONNX Graph Generation'''
-    onnx_graph = tf2onnx.tfonnx.process_tf_graph(frozen_graph, input_names=inputs, output_names=outputs)
+    onnx_graph = tf2onnx.tfonnx.process_tf_graph(sess.graph, 
+                    input_names=inputs, 
+                    output_names=outputs)
 
     '''Optimizing Grapph for ONNX Formation'''
     opt_graph = tf2onnx.optimizer.optimize_graph(onnx_graph)
