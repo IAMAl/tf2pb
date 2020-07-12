@@ -95,11 +95,10 @@ def _run_pb_gen():
     frozen_graph = freeze_session(sess, sub_graph, output_names=outputs)
 
   '''Graph_Def to Graph Conversion'''
-  #tf_reset_default_graph()
+  tf_reset_default_graph()
   graph = tf.import_graph_def(frozen_graph, name='')
 
   with tf_session(graph=graph) as sess:
-    print(sess.graph)
     '''Extract Inputs'''
     inputs = []
     for op in sess.graph.get_operations():
@@ -110,9 +109,11 @@ def _run_pb_gen():
     name_list = []
     exclsv_list = []
     for node in graph_def.node:
-        name_list.append(node.name+':0')
-        exclsv_list.extend(node.input)
+      name_list.append(node.name+':0')
+      exclsv_list.extend(node.input)
     outputs = list(set(name_list) - set(exclsv_list))
+    '''Remove unnecessary element'''
+    outputs = outputs[:0]
 
     '''ONNX Graph Generation'''
     onnx_graph = tf2onnx.tfonnx.process_tf_graph(sess.graph, 
@@ -120,11 +121,11 @@ def _run_pb_gen():
                     output_names=outputs)
 
     '''Optimizing Grapph for ONNX Formation'''
-    opt_graph = tf2onnx.optimizer.optimize_graph(onnx_graph)
+    #opt_graph = tf2onnx.optimizer.optimize_graph(onnx_graph)
 
     '''Make ProtoBuff Model'''
-    model_proto = opt_graph.make_model(str(FLAGS.output_path))
-    onnx.checker.check_model(model_proto)
+    model_proto = onnx_graph.make_model(str(FLAGS.output_path))
+    #onnx.checker.check_model(model_proto)
 
     '''Store ProtoBuff-file'''
     tf2onnx.utils.save_onnx_model("./", "saved_model", feed_dict={}, model_proto=model_proto)
