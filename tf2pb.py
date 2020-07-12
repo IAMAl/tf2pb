@@ -95,10 +95,11 @@ def _run_pb_gen():
     frozen_graph = freeze_session(sess, sub_graph, output_names=outputs)
 
   '''Graph_Def to Graph Conversion'''
-  tf_reset_default_graph()
+  #tf_reset_default_graph()
   graph = tf.import_graph_def(frozen_graph, name='')
 
   with tf_session(graph=graph) as sess:
+    print(sess.graph)
     '''Extract Inputs'''
     inputs = []
     for op in sess.graph.get_operations():
