@@ -1,3 +1,10 @@
+#### TensorFlow Model to ProtoBuff (pb) Converter
+## Author: IMAMAl
+## https://github.com/IAMAl/onnx
+## Acknowledge:
+## Thanks to Jignparm (https://github.com/jignparm) who guided me to develop this script.
+## See our talk: https://github.com/onnx/tensorflow-onnx/issues/991
+
 import os
 from absl import app 
 from absl import flags
@@ -62,6 +69,7 @@ def _run_pb_gen():
         name_list.append(node.name)
         exclsv_list.extend(node.input)
     outputs = list(set(name_list) - set(exclsv_list))
+    outputs = ['depth_prediction/depth_prediction/truediv']
 
     '''Fix Nodes'''
     '''See: https://github.com/onnx/tensorflow-onnx/issues/77'''
@@ -86,6 +94,8 @@ def _run_pb_gen():
           # input1: value: The value to be assigned to the variable.
           node.input[0] = node.input[1]
           del node.input[1]
+      elif node.op == 'L2Loss':
+          node.op = 'Abs'
 
     '''Sub Graph Extraction'''
     needed_names = [tf2onnx.utils.node_name(i) for i in inputs] + [tf2onnx.utils.node_name(i) for i in outputs]
@@ -93,6 +103,10 @@ def _run_pb_gen():
 
     '''Freezing Graph (Necessary before Making ONNX Graph)'''
     frozen_graph = freeze_session(sess, sub_graph, output_names=outputs)
+
+  frozen_graph = tf.graph_util.remove_training_nodes(frozen_graph)
+  with open("frozen.pb", "wb") as f:
+      f.write(frozen_graph.SerializeToString())
 
   '''Graph_Def to Graph Conversion'''
   tf_reset_default_graph()
@@ -106,14 +120,9 @@ def _run_pb_gen():
           inputs.append(op.name+':0')
 
     '''Extract Outputs'''
-    name_list = []
-    exclsv_list = []
-    for node in graph_def.node:
-      name_list.append(node.name+':0')
-      exclsv_list.extend(node.input)
-    outputs = list(set(name_list) - set(exclsv_list))
-    '''Remove unnecessary element'''
-    outputs = outputs[:0]
+    outputs = [output+":0" for output in outputs]
+
+    print ("jrp", outputs)
 
     '''ONNX Graph Generation'''
     onnx_graph = tf2onnx.tfonnx.process_tf_graph(sess.graph, 
